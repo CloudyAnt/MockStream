@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -22,6 +23,7 @@ type Config struct {
 	MockContent  string
 	MockThinking string
 	Running      bool
+	MockEnabled  bool
 }
 
 var (
@@ -54,10 +56,17 @@ func main() {
 	statusLabel := widget.NewLabel("Server Status: Not Running")
 	startButton := widget.NewButton("Start Server", nil)
 
+	mockSwitch := widget.NewCheck("Enable Mock", func(checked bool) {
+		configMutex.Lock()
+		appConfig.MockEnabled = checked
+		configMutex.Unlock()
+	})
+	mockSwitch.SetChecked(true)
 	// LAYOUT
 	form := container.NewVBox(
 		widget.NewLabel("Proxy URL"),
 		backendEntry,
+		mockSwitch,
 		widget.NewLabel("Mock Thinking"),
 		thinkingScroll,
 		widget.NewLabel("Mock Content"),
@@ -80,7 +89,6 @@ func main() {
 	thinkingEntry.OnChanged = func(text string) {
 		configMutex.Lock()
 		appConfig.MockThinking = text
-		fmt.Printf(">> %p, %s\n", &appConfig, appConfig.MockThinking)
 		configMutex.Unlock()
 	}
 
@@ -98,6 +106,7 @@ func main() {
 				BackendURL:   backendEntry.Text,
 				MockContent:  contentEntry.Text,
 				MockThinking: thinkingEntry.Text,
+				MockEnabled:  mockSwitch.Checked,
 				Running:      true,
 			}
 			startServer()
@@ -133,63 +142,59 @@ func startServer() {
 }
 
 func handleMockStream(w http.ResponseWriter, r *http.Request) {
+	if !appConfig.MockEnabled {
+		handleProxy(w, r)
+		return
+	}
 	configMutex.RLock()
-	fmt.Printf(">>> %p, %s\n", &appConfig, appConfig.MockThinking)
 	thinking := appConfig.MockThinking
 	content := appConfig.MockContent
 	configMutex.RUnlock()
 	fmt.Printf("Mocking thinking: %s\nMocking content: %s\n", thinking, content)
 
-	// 设置公共响应头
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	flusher := w.(http.Flusher)
+	handleMockStream0(w, thinking, "reasoning_content")
+	handleMockStream0(w, content, "content")
+}
 
-	if thinking != "" {
-		reasoningData := map[string]interface{}{
-			"choices": []interface{}{
-				map[string]interface{}{
-					"delta": map[string]string{
-						"reasoning_content": thinking,
-					},
-				},
-			},
-		}
-		if jsonData, err := json.Marshal(reasoningData); err == nil {
-			fmt.Fprintf(w, "data: %s\n\n", jsonData)
-			flusher.Flush()
-			time.Sleep(300 * time.Millisecond) // 保持与后续内容的时间间隔
-		}
-	}
-
-	// Spilt the mock text into chunks
+func handleMockStream0(w http.ResponseWriter, content, key string) {
 	chunks := strings.SplitAfter(content, "\n")
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
+	count := 0
+	//firstLine := true
 	for _, chunk := range chunks {
-		chunk = strings.TrimSpace(chunk)
 		if chunk == "" {
 			continue
 		}
-
+		ch := chunk
+		//if firstLine {
+		//	firstLine = false
+		//} else {
+		//	ch = "\n" + chunk
+		//}
 		data := map[string]interface{}{
 			"choices": []interface{}{
 				map[string]interface{}{
 					"delta": map[string]string{
-						"content": chunk,
+						key: ch,
 					},
 				},
 			},
 		}
 
 		jsonData, _ := json.Marshal(data)
-		fmt.Fprintf(w, "data: %s\n\n", jsonData)
+		fmt.Fprintf(w, "data: %s\n", jsonData)
 		w.(http.Flusher).Flush()
+		count++
 		time.Sleep(500 * time.Millisecond)
+
+	}
+	if count > 0 {
+		fmt.Fprintf(w, "data: %s\n", "[DONE]")
+		w.(http.Flusher).Flush()
 	}
 }
 
@@ -205,6 +210,18 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 
 	target, _ := url.Parse(targetURL)
 	proxy := httputil.NewSingleHostReverseProxy(target)
+	proxy.Transport = &http.Transport{
+		Proxy: nil, // Disable system proxy
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
 
 	// Maintain the same host
 	r.URL.Host = target.Host
@@ -213,5 +230,6 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 	r.Host = target.Host
 
 	// Proxy the request
+	fmt.Printf("Proxying request: %s\n", r.URL.String())
 	proxy.ServeHTTP(w, r)
 }
