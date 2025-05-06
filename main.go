@@ -19,18 +19,21 @@ import (
 )
 
 type Config struct {
-	BackendURL   string
-	MockContent  string
-	MockThinking string
-	Running      bool
-	MockEnabled  bool
+	BackendURL    string
+	MockContent   string
+	MockThinking  string
+	MockFunctions string
+	Running       bool
+	MockEnabled   bool
+	Port          int
 }
 
 var (
 	configMutex sync.RWMutex
 	appConfig   Config
 	server      *http.Server
-	port        = 10086
+	defaultPort = 10086
+	portPicker  *PortPicker
 )
 
 func main() {
@@ -41,15 +44,18 @@ func main() {
 
 	// GUI
 	backendEntry := widget.NewEntry()
-	backendEntry.SetPlaceHolder("Input proxy url(.e.g. http://api.openai.com)")
+	backendEntry.SetPlaceHolder("Input proxy url(.e.g. http://localhost:3001)")
+	backendEntry.SetText("http://localhost:3001")
 
 	contentEntry := widget.NewMultiLineEntry()
 	contentEntry.SetPlaceHolder("Input content")
+	contentEntry.SetText("Hello, I am a mock server.")
 	contentScroll := container.NewScroll(contentEntry)
 	contentScroll.SetMinSize(fyne.NewSize(380, 200))
 
 	thinkingEntry := widget.NewMultiLineEntry()
 	thinkingEntry.SetPlaceHolder("Input reasoning content")
+	thinkingEntry.SetText("I am thinking...")
 	thinkingScroll := container.NewScroll(thinkingEntry)
 	thinkingScroll.SetMinSize(fyne.NewSize(380, 200))
 
@@ -62,11 +68,18 @@ func main() {
 		configMutex.Unlock()
 	})
 	mockSwitch.SetChecked(true)
+
+	mockFunctions := widget.NewEntry()
+	mockFunctions.SetPlaceHolder("Input mock functions(.e.g. chat,codebase)")
+	mockFunctions.SetText("chat")
+
 	// LAYOUT
 	form := container.NewVBox(
 		widget.NewLabel("Proxy URL"),
 		backendEntry,
 		mockSwitch,
+		widget.NewLabel("Mock Functions"),
+		mockFunctions,
 		widget.NewLabel("Mock Thinking"),
 		thinkingScroll,
 		widget.NewLabel("Mock Content"),
@@ -92,6 +105,13 @@ func main() {
 		configMutex.Unlock()
 	}
 
+	mockFunctions.OnChanged = func(text string) {
+		configMutex.Lock()
+		appConfig.MockFunctions = text
+		configMutex.Unlock()
+	}
+
+	portPicker = NewPortPicker("server port", defaultPort)
 	startButton.OnTapped = func() {
 		configMutex.Lock()
 		defer configMutex.Unlock()
@@ -101,23 +121,28 @@ func main() {
 			appConfig.Running = false
 			statusLabel.SetText("Server Status: Stopped")
 			startButton.SetText("Start Server")
+			portPicker.GetUI().Show()
 		} else {
 			appConfig = Config{
-				BackendURL:   backendEntry.Text,
-				MockContent:  contentEntry.Text,
-				MockThinking: thinkingEntry.Text,
-				MockEnabled:  mockSwitch.Checked,
-				Running:      true,
+				BackendURL:    backendEntry.Text,
+				MockContent:   contentEntry.Text,
+				MockThinking:  thinkingEntry.Text,
+				MockEnabled:   mockSwitch.Checked,
+				MockFunctions: mockFunctions.Text,
+				Port:          portPicker.GetPort(),
+				Running:       true,
 			}
 			startServer()
-			statusLabel.SetText(fmt.Sprintf("Server Status: Started (Port:%d)", port))
+			statusLabel.SetText(fmt.Sprintf("Server Status: Started (Port:%d)", appConfig.Port))
 			startButton.SetText("Stop Server")
+			portPicker.GetUI().Hide()
 		}
 	}
 
 	window.SetContent(container.NewVBox(
 		form,
 		statusLabel,
+		portPicker.GetUI(),
 		startButton,
 	))
 	window.Resize(fyne.NewSize(500, 600))
@@ -130,7 +155,7 @@ func startServer() {
 	mux.HandleFunc("/", handleProxy)
 
 	server = &http.Server{
-		Addr:    ":" + strconv.Itoa(port),
+		Addr:    ":" + strconv.Itoa(appConfig.Port),
 		Handler: mux,
 	}
 
@@ -143,14 +168,23 @@ func startServer() {
 
 func handleMockStream(w http.ResponseWriter, r *http.Request) {
 	if !appConfig.MockEnabled {
+		fmt.Printf("Mocking disabled\n")
 		handleProxy(w, r)
 		return
 	}
+	mockingFunctions := strings.Split(appConfig.MockFunctions, ",")
+	funcName := r.Header.Get("Functionname")
+	if mockingFunctions != nil && !strings.Contains(mockingFunctions[0], funcName) {
+		fmt.Printf("Not mocking function: %s\n", funcName)
+		handleProxy(w, r)
+		return
+	}
+
 	configMutex.RLock()
 	thinking := appConfig.MockThinking
 	content := appConfig.MockContent
 	configMutex.RUnlock()
-	fmt.Printf("Mocking thinking: %s\nMocking content: %s\n", thinking, content)
+	fmt.Printf("Mocking function: %s\nMocking thinking: %s\nMocking content: %s\n", funcName, thinking, content)
 
 	handleMockStream0(w, thinking, "reasoning_content")
 	handleMockStream0(w, content, "content")
@@ -164,17 +198,11 @@ func handleMockStream0(w http.ResponseWriter, content, key string) {
 	w.Header().Set("Connection", "keep-alive")
 
 	count := 0
-	//firstLine := true
 	for _, chunk := range chunks {
 		if chunk == "" {
 			continue
 		}
 		ch := chunk
-		//if firstLine {
-		//	firstLine = false
-		//} else {
-		//	ch = "\n" + chunk
-		//}
 		data := map[string]interface{}{
 			"choices": []interface{}{
 				map[string]interface{}{
