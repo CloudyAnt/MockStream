@@ -32,7 +32,7 @@ var (
 	configMutex sync.RWMutex
 	appConfig   Config
 	server      *http.Server
-	defaultPort = 10086
+	defaultPort = 10010
 	portPicker  *PortPicker
 )
 
@@ -173,7 +173,7 @@ func handleMockStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	mockingFunctions := strings.Split(appConfig.MockFunctions, ",")
-	funcName := r.Header.Get("Functionname")
+	funcName := r.Header.Get("FunctionName")
 	if mockingFunctions != nil && !strings.Contains(mockingFunctions[0], funcName) {
 		fmt.Printf("Not mocking function: %s\n", funcName)
 		handleProxy(w, r)
@@ -188,6 +188,8 @@ func handleMockStream(w http.ResponseWriter, r *http.Request) {
 
 	handleMockStream0(w, thinking, "reasoning_content")
 	handleMockStream0(w, content, "content")
+	fmt.Fprintf(w, "data: %s\n", "[DONE]")
+	w.(http.Flusher).Flush()
 }
 
 func handleMockStream0(w http.ResponseWriter, content, key string) {
@@ -219,10 +221,6 @@ func handleMockStream0(w http.ResponseWriter, content, key string) {
 		count++
 		time.Sleep(500 * time.Millisecond)
 
-	}
-	if count > 0 {
-		fmt.Fprintf(w, "data: %s\n", "[DONE]")
-		w.(http.Flusher).Flush()
 	}
 }
 
