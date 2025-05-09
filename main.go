@@ -25,6 +25,7 @@ type Config struct {
 	MockFunctions string
 	Running       bool
 	MockEnabled   bool
+	RawMode       bool // return raw line instead of "data: {...}"
 	Port          int
 }
 
@@ -69,6 +70,13 @@ func main() {
 	})
 	mockSwitch.SetChecked(true)
 
+	rawModeSwitch := widget.NewCheck("Raw Mode", func(checked bool) {
+		configMutex.Lock()
+		appConfig.RawMode = checked
+		configMutex.Unlock()
+	})
+	rawModeSwitch.SetChecked(false)
+
 	mockFunctions := widget.NewEntry()
 	mockFunctions.SetPlaceHolder("Input mock functions(.e.g. chat,codebase)")
 	mockFunctions.SetText("chat")
@@ -77,7 +85,7 @@ func main() {
 	form := container.NewVBox(
 		widget.NewLabel("Proxy URL"),
 		backendEntry,
-		mockSwitch,
+		container.NewHBox(mockSwitch, rawModeSwitch),
 		widget.NewLabel("Mock Functions"),
 		mockFunctions,
 		widget.NewLabel("Mock Thinking"),
@@ -128,6 +136,7 @@ func main() {
 				MockContent:   contentEntry.Text,
 				MockThinking:  thinkingEntry.Text,
 				MockEnabled:   mockSwitch.Checked,
+				RawMode:       rawModeSwitch.Checked,
 				MockFunctions: mockFunctions.Text,
 				Port:          portPicker.GetPort(),
 				Running:       true,
@@ -180,19 +189,21 @@ func handleMockStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	rawMode := appConfig.RawMode
 	configMutex.RLock()
 	thinking := appConfig.MockThinking
 	content := appConfig.MockContent
 	configMutex.RUnlock()
-	fmt.Printf("Mocking function: %s\nMocking thinking: %s\nMocking content: %s\n", funcName, thinking, content)
+	fmt.Printf("Mocking function: %s\nMocking thinking: %s\nMocking content: %s\n. RawMode: %t\n",
+		funcName, thinking, content, rawMode)
 
-	handleMockStream0(w, thinking, "reasoning_content")
-	handleMockStream0(w, content, "content")
+	handleMockStream0(w, thinking, "reasoning_content", rawMode)
+	handleMockStream0(w, content, "content", rawMode)
 	fmt.Fprintf(w, "data: %s\n", "[DONE]")
 	w.(http.Flusher).Flush()
 }
 
-func handleMockStream0(w http.ResponseWriter, content, key string) {
+func handleMockStream0(w http.ResponseWriter, content, key string, rawMode bool) {
 	chunks := strings.SplitAfter(content, "\n")
 
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -205,22 +216,26 @@ func handleMockStream0(w http.ResponseWriter, content, key string) {
 			continue
 		}
 		ch := chunk
-		data := map[string]interface{}{
-			"choices": []interface{}{
-				map[string]interface{}{
-					"delta": map[string]string{
-						key: ch,
+		if rawMode {
+			fmt.Fprintf(w, "%s\n", ch)
+		} else {
+			data := map[string]interface{}{
+				"choices": []interface{}{
+					map[string]interface{}{
+						"delta": map[string]string{
+							key: ch,
+						},
 					},
 				},
-			},
+			}
+
+			jsonData, _ := json.Marshal(data)
+			fmt.Fprintf(w, "data: %s\n", jsonData)
 		}
 
-		jsonData, _ := json.Marshal(data)
-		fmt.Fprintf(w, "data: %s\n", jsonData)
 		w.(http.Flusher).Flush()
 		count++
-		time.Sleep(500 * time.Millisecond)
-
+		time.Sleep(200 * time.Millisecond)
 	}
 }
 
