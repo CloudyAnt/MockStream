@@ -35,6 +35,13 @@ var (
 	server      *http.Server
 	defaultPort = 10010
 	portPicker  *PortPicker
+
+	// --- logs ---
+
+	logMutex    sync.RWMutex
+	requestLogs []string
+	maxLogs     = 100
+	logEntry    *widget.Entry
 )
 
 func main() {
@@ -61,7 +68,7 @@ func main() {
 	thinkingScroll.SetMinSize(fyne.NewSize(380, 200))
 
 	statusLabel := widget.NewLabel("Server Status: Not Running")
-	startButton := widget.NewButton("Start Server", nil)
+	startButton := widget.NewButton("Start Server ▶️", nil)
 
 	mockSwitch := widget.NewCheck("Enable Mock", func(checked bool) {
 		configMutex.Lock()
@@ -93,6 +100,11 @@ func main() {
 		widget.NewLabel("Mock Content"),
 		contentScroll,
 	)
+
+	logEntry = widget.NewMultiLineEntry()
+	logEntry.Disable()
+	logScroll := container.NewScroll(logEntry)
+	logScroll.SetMinSize(fyne.NewSize(380, 200))
 
 	// EVENT HANDLER
 	backendEntry.OnChanged = func(text string) {
@@ -128,8 +140,8 @@ func main() {
 			server.Close()
 			appConfig.Running = false
 			statusLabel.SetText("Server Status: Stopped")
-			startButton.SetText("Start Server")
-			portPicker.GetUI().Show()
+			startButton.SetText("Start Server ▶️")
+			portPicker.Enable()
 		} else {
 			appConfig = Config{
 				BackendURL:    backendEntry.Text,
@@ -143,17 +155,22 @@ func main() {
 			}
 			startServer()
 			statusLabel.SetText(fmt.Sprintf("Server Status: Started (Port:%d)", appConfig.Port))
-			startButton.SetText("Stop Server")
-			portPicker.GetUI().Hide()
+			startButton.SetText("Stop Server 🔴")
+			portPicker.Disable()
 		}
 	}
 
-	window.SetContent(container.NewVBox(
+	mainPage := container.NewVBox(
 		form,
 		statusLabel,
 		portPicker.GetUI(),
 		startButton,
-	))
+	)
+	tabs := container.NewAppTabs(
+		container.NewTabItem("Mock", mainPage),
+		container.NewTabItem("Logs", logScroll),
+	)
+	window.SetContent(tabs)
 	window.Resize(fyne.NewSize(500, 600))
 	window.ShowAndRun()
 }
@@ -177,14 +194,14 @@ func startServer() {
 
 func handleMockStream(w http.ResponseWriter, r *http.Request) {
 	if !appConfig.MockEnabled {
-		fmt.Printf("Mocking disabled\n")
+		log("Mocking disabled")
 		handleProxy(w, r)
 		return
 	}
 	mockingFunctions := strings.Split(appConfig.MockFunctions, ",")
 	funcName := r.Header.Get("FunctionName")
 	if mockingFunctions != nil && !strings.Contains(mockingFunctions[0], funcName) {
-		fmt.Printf("Not mocking function: %s\n", funcName)
+		log(fmt.Sprintf("Not mocking function: %s", funcName))
 		handleProxy(w, r)
 		return
 	}
@@ -194,8 +211,8 @@ func handleMockStream(w http.ResponseWriter, r *http.Request) {
 	thinking := appConfig.MockThinking
 	content := appConfig.MockContent
 	configMutex.RUnlock()
-	fmt.Printf("Mocking function: %s\nMocking thinking: %s\nMocking content: %s\n. RawMode: %t\n",
-		funcName, thinking, content, rawMode)
+	log(fmt.Sprintf("Mocking function: %s\nMocking thinking: %s\nMocking content: %s\n. RawMode: %t",
+		funcName, thinking, content, rawMode))
 
 	handleMockStream0(w, thinking, "reasoning_content", rawMode)
 	handleMockStream0(w, content, "content", rawMode)
@@ -271,6 +288,24 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 	r.Host = target.Host
 
 	// Proxy the request
-	fmt.Printf("Proxying request: %s\n", r.URL.String())
+	log(fmt.Sprintf("Proxying request: %s", r.URL.String()))
 	proxy.ServeHTTP(w, r)
+}
+
+func log(log string) {
+	logMutex.Lock()
+	defer logMutex.Unlock()
+
+	log = fmt.Sprintf("[%s] %s", time.Now().Format("15:04:05"), log)
+	requestLogs = append([]string{log}, requestLogs...)
+	if len(requestLogs) > maxLogs {
+		requestLogs = requestLogs[:maxLogs]
+	}
+	if logEntry != nil {
+		fyne.Do(updateLogs)
+	}
+}
+
+func updateLogs() {
+	logEntry.SetText(strings.Join(requestLogs, "\n"))
 }

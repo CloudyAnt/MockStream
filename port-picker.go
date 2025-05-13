@@ -83,3 +83,15 @@ func (p *PortPicker) GetUI() fyne.CanvasObject {
 	}
 	return gui
 }
+
+func (p *PortPicker) Disable() {
+	p.entry.Disable()
+	p.btnUp.Disable()
+	p.btnDown.Disable()
+}
+
+func (p *PortPicker) Enable() {
+	p.entry.Enable()
+	p.btnUp.Enable()
+	p.btnDown.Enable()
+}
