@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"fyne.io/fyne/v2/layout"
 	"strconv"
 
 	"fyne.io/fyne/v2"
@@ -38,22 +37,24 @@ func NewPortPicker(name string, initialPort int) *PortPicker {
 		p.entry.SetText(strconv.Itoa(p.current))
 	}
 
-	p.btnUp = widget.NewButton("↑", func() {
+	// Create smaller buttons with custom size
+	p.btnUp = widget.NewButton("▲", func() {
 		if p.current < 65535 {
 			p.current++
 			updateEntry()
 		}
 	})
+	p.btnUp.Importance = widget.LowImportance
 
-	p.btnDown = widget.NewButton("↓", func() {
+	p.btnDown = widget.NewButton("▼", func() {
 		if p.current > 1 {
 			p.current--
 			updateEntry()
 		}
 	})
+	p.btnDown.Importance = widget.LowImportance
 
 	p.entry.OnChanged = func(s string) {
-		fmt.Println(s)
 		if val, err := strconv.Atoi(s); err == nil {
 			p.current = val
 		}
@@ -71,15 +72,20 @@ func (p *PortPicker) GetPort() int {
 
 func (p *PortPicker) GetUI() fyne.CanvasObject {
 	if gui == nil {
-		buttons := container.NewVBox(
+		// Create a horizontal layout for the buttons
+		buttons := container.NewHBox(
 			p.btnUp,
 			p.btnDown,
 		)
-		gui = container.New(
-			layout.NewBorderLayout(nil, nil, nil, buttons),
+
+		// Create a container that combines the entry and buttons
+		gui = container.NewBorder(
+			nil, nil, nil, buttons,
 			p.entry,
-			buttons,
 		)
+
+		// Set minimum size for the entry to make it more compact
+		p.entry.Resize(fyne.NewSize(100, p.entry.MinSize().Height))
 	}
 	return gui
 }
