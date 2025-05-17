@@ -31,14 +31,6 @@ type Config struct {
 	Port          int
 }
 
-type LogEntry struct {
-	Timestamp string
-	Summary   string
-	Request   *http.Request
-	Response  *http.Response
-	Body      string
-}
-
 var (
 	configMutex sync.RWMutex
 	appConfig   Config
@@ -47,10 +39,8 @@ var (
 	portPicker  *PortPicker
 
 	// --- logs ---
-	logMutex    sync.RWMutex
-	requestLogs []LogEntry
-	maxLogs     = 100
-	logList     *widget.List
+	requestLogger *RequestLogger
+	reqLogList    *widget.List
 )
 
 // ResponseRecorder is a custom implementation of http.ResponseWriter that records the response
@@ -93,6 +83,9 @@ func main() {
 	myApp.SetIcon(ResourceAppIconPng)
 	window := myApp.NewWindow("OpenAI Mock Server")
 	window.SetIcon(ResourceAppIconPng)
+
+	// Initialize logger
+	requestLogger = NewRequestLogger(100)
 
 	// GUI
 	backendEntry := widget.NewEntry()
@@ -159,19 +152,17 @@ func main() {
 		container.NewPadded(contentScroll),
 	)
 
-	logList = widget.NewList(
+	reqLogList = widget.NewList(
 		func() int {
-			logMutex.RLock()
-			defer logMutex.RUnlock()
-			return len(requestLogs)
+			return requestLogger.GetLogCount()
 		},
 		func() fyne.CanvasObject {
-			return widget.NewLabel("Template")
+			label := widget.NewLabel("Template")
+			label.TextStyle = fyne.TextStyle{Monospace: true}
+			return label
 		},
 		func(id widget.ListItemID, item fyne.CanvasObject) {
-			logMutex.RLock()
-			log := requestLogs[id]
-			logMutex.RUnlock()
+			log := requestLogger.GetLog(id)
 
 			// Format the list item text
 			var status string
@@ -196,49 +187,16 @@ func main() {
 		},
 	)
 
-	logList.OnSelected = func(id widget.ListItemID) {
-		logMutex.RLock()
-		log := requestLogs[id]
-		logMutex.RUnlock()
+	requestLogger.SetLogList(reqLogList)
 
-		var details strings.Builder
-		details.WriteString(fmt.Sprintf("Time: %s\n\n", log.Timestamp))
-
-		// Request details
-		details.WriteString("=== Request ===\n")
-		if log.Request != nil {
-			details.WriteString(fmt.Sprintf("Method: %s\n", log.Request.Method))
-			details.WriteString(fmt.Sprintf("URL: %s\n", log.Request.URL.String()))
-			details.WriteString("Headers:\n")
-			for k, v := range log.Request.Header {
-				details.WriteString(fmt.Sprintf("  %s: %v\n", k, v))
-			}
-		} else {
-			details.WriteString("No request information available\n")
-		}
-
-		// Response details
-		details.WriteString("\n=== Response ===\n")
-		if log.Response != nil {
-			details.WriteString(fmt.Sprintf("Status: %s\n", log.Response.Status))
-			details.WriteString("Headers:\n")
-			for k, v := range log.Response.Header {
-				details.WriteString(fmt.Sprintf("  %s: %v\n", k, v))
-			}
-		} else {
-			details.WriteString("No response information available\n")
-		}
-
-		// Body
-		if log.Body != "" {
-			details.WriteString("\n=== Body ===\n")
-			details.WriteString(log.Body)
-		}
+	reqLogList.OnSelected = func(id widget.ListItemID) {
+		log := requestLogger.GetLog(id)
 
 		// Create a selectable text entry with better styling
 		textEntry := widget.NewMultiLineEntry()
-		textEntry.SetText(details.String())
+		textEntry.SetText(requestLogger.FormatLogDetails(log))
 		textEntry.Wrapping = fyne.TextWrapWord
+		textEntry.TextStyle = fyne.TextStyle{Monospace: true}
 		textEntry.Disable()
 
 		// Create a scroll container for the text
@@ -246,10 +204,15 @@ func main() {
 		scroll.SetMinSize(fyne.NewSize(500, 400))
 
 		// Create a custom dialog with the scrollable text
-		dialog.ShowCustom("Log Details", "Close", scroll, window)
+		d := dialog.NewCustom("Log Details", "Close", scroll, window)
+		d.SetOnClosed(func() {
+			// Reset the selection after dialog is closed
+			reqLogList.Unselect(id)
+		})
+		d.Show()
 	}
 
-	logScroll := container.NewScroll(logList)
+	logScroll := container.NewScroll(reqLogList)
 	logScroll.SetMinSize(fyne.NewSize(380, 200))
 
 	// EVENT HANDLER
@@ -349,7 +312,7 @@ func handleMockStream(w http.ResponseWriter, r *http.Request) {
 	mockingFunctions := strings.Split(appConfig.MockFunctions, ",")
 	funcName := r.Header.Get("FunctionName")
 	if mockingFunctions != nil && !strings.Contains(mockingFunctions[0], funcName) {
-		logWithRequest(fmt.Sprintf("Not mocking function: %s", funcName), r, "")
+		requestLogger.LogWithRequest(fmt.Sprintf("Not mocking function: %s", funcName), r, "")
 		handleProxy(w, r)
 		return
 	}
@@ -361,7 +324,7 @@ func handleMockStream(w http.ResponseWriter, r *http.Request) {
 	configMutex.RUnlock()
 
 	summary := fmt.Sprintf("Mocking function: %s", funcName)
-	logWithRequest(summary, r, fmt.Sprintf("Thinking: %s\nContent: %s\nRawMode: %t", thinking, content, rawMode))
+	requestLogger.LogWithRequest(summary, r, fmt.Sprintf("Thinking: %s\nContent: %s\nRawMode: %t", thinking, content, rawMode))
 
 	handleMockStream0(w, thinking, "reasoning_content", rawMode)
 	handleMockStream0(w, content, "content", rawMode)
@@ -412,7 +375,7 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 
 	if targetURL == "" {
 		http.Error(w, "Proxy URL is not set", http.StatusBadGateway)
-		logWithRequest("Proxy URL is not set", r, "")
+		requestLogger.LogWithRequest("Proxy URL is not set", r, "")
 		return
 	}
 
@@ -453,7 +416,7 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 	recorder := NewResponseRecorder(w)
 
 	// Proxy the request
-	logEntry := logWithRequest(fmt.Sprintf("Proxying request: %s", r.URL.String()), r, "")
+	logEntry := requestLogger.LogWithRequest(fmt.Sprintf("Proxying request: %s", r.URL.String()), r, "")
 	proxy.ServeHTTP(recorder, r)
 
 	// Create a response object for logging
@@ -465,24 +428,4 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 
 	// Log the response
 	logEntry.Response = resp
-}
-
-func logWithRequest(log string, req *http.Request, body string) *LogEntry {
-	logMutex.Lock()
-	defer logMutex.Unlock()
-
-	entry := LogEntry{
-		Timestamp: time.Now().Format("15:04:05"),
-		Summary:   log,
-		Request:   req,
-		Body:      body,
-	}
-	requestLogs = append([]LogEntry{entry}, requestLogs...)
-	if len(requestLogs) > maxLogs {
-		requestLogs = requestLogs[:maxLogs]
-	}
-	if logList != nil {
-		fyne.Do(logList.Refresh)
-	}
-	return &entry
 }
