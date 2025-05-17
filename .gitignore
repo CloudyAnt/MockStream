@@ -1,1 +1,11 @@
-.idea
+/*
+
+!.gitignore
+!assets
+!.gctpattern
+!bundled.go
+!FyneApp.toml
+!go.mod
+!go.sum
+!*.go
+!README.md
