@@ -61,16 +61,50 @@ func main() {
 	backendEntry.Wrapping = fyne.TextWrapWord
 
 	contentEntry := widget.NewMultiLineEntry()
-	contentEntry.SetPlaceHolder("Input content")
+	contentEntry.SetPlaceHolder("Input content (Click ⇥ button to insert tab)")
 	contentEntry.SetText("Hello, I am a mock server.")
 	contentScroll := container.NewScroll(contentEntry)
 	contentScroll.SetMinSize(fyne.NewSize(380, 200))
 
+	tabButton := widget.NewButton("Insert Tab", func() {
+		text := contentEntry.Text
+		row := contentEntry.CursorRow
+		col := contentEntry.CursorColumn
+
+		// Split text into lines
+		lines := strings.Split(text, "\n")
+		if row < len(lines) {
+			lines[row] = InsertStringConcat(lines[row], col, "⇥")
+			contentEntry.SetText(strings.Join(lines, "\n"))
+			// Move cursor after the inserted tab
+			contentEntry.CursorColumn = col + 1
+			contentEntry.Refresh()
+		}
+	})
+	contentContainer := container.NewVBox(contentScroll)
+
 	thinkingEntry := widget.NewMultiLineEntry()
-	thinkingEntry.SetPlaceHolder("Input reasoning content")
+	thinkingEntry.SetPlaceHolder("Input reasoning content (Click ⇥ button to insert tab)")
 	thinkingEntry.SetText("I am thinking...")
 	thinkingScroll := container.NewScroll(thinkingEntry)
 	thinkingScroll.SetMinSize(fyne.NewSize(380, 200))
+
+	thinkingTabButton := widget.NewButton("Insert Tab", func() {
+		text := thinkingEntry.Text
+		row := thinkingEntry.CursorRow
+		col := thinkingEntry.CursorColumn
+
+		// Split text into lines
+		lines := strings.Split(text, "\n")
+		if row < len(lines) {
+			lines[row] = InsertStringConcat(lines[row], col, "⇥")
+			thinkingEntry.SetText(strings.Join(lines, "\n"))
+			// Move cursor after the inserted tab
+			thinkingEntry.CursorColumn = col + 1
+			thinkingEntry.Refresh()
+		}
+	})
+	thinkingContainer := container.NewVBox(thinkingScroll)
 
 	statusLabel := widget.NewLabel("Server Status: Not Running")
 	statusLabel.TextStyle = fyne.TextStyle{Bold: true}
@@ -96,27 +130,30 @@ func main() {
 	mockFunctions.SetText("chat")
 
 	// Create section headers with custom styling
-	createHeader := func(text string) *widget.Label {
+	createHeader := func(text string, tabButton *widget.Button) *fyne.Container {
 		header := widget.NewLabel(text)
 		header.TextStyle = fyne.TextStyle{Bold: true}
 		header.Alignment = fyne.TextAlignLeading
-		return header
+		if tabButton != nil {
+			return container.NewHBox(header, tabButton)
+		}
+		return container.NewHBox(header)
 	}
 
 	// LAYOUT
 	form := container.NewVBox(
-		createHeader("Proxy Configuration"),
+		createHeader("Proxy Configuration", nil),
 		container.NewPadded(backendEntry),
 		container.NewHBox(
 			container.NewPadded(mockSwitch),
 			container.NewPadded(rawModeSwitch),
 		),
-		createHeader("Mock Functions"),
+		createHeader("Mock Functions", nil),
 		container.NewPadded(mockFunctions),
-		createHeader("Mock Thinking"),
-		container.NewPadded(thinkingScroll),
-		createHeader("Mock Content"),
-		container.NewPadded(contentScroll),
+		createHeader("Mock Thinking", thinkingTabButton),
+		container.NewPadded(thinkingContainer),
+		createHeader("Mock Content", tabButton),
+		container.NewPadded(contentContainer),
 	)
 
 	reqLogList = widget.NewList(
@@ -300,6 +337,7 @@ func handleMockStream(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleMockStream0(w http.ResponseWriter, content, key string, rawMode bool) {
+	content = strings.ReplaceAll(content, "⇥", "\t")
 	chunks := strings.SplitAfter(content, "\n")
 
 	w.Header().Set("Content-Type", "text/event-stream")
