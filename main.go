@@ -315,7 +315,17 @@ func handleMockStream(w http.ResponseWriter, r *http.Request) {
 	}
 	mockingFunctions := strings.Split(appConfig.MockFunctions, ",")
 	funcName := r.Header.Get("FunctionName")
-	if mockingFunctions != nil && !strings.Contains(mockingFunctions[0], funcName) {
+
+	// Check if the function name is in the list of mocking functions
+	shouldMock := false
+	for _, mockFunc := range mockingFunctions {
+		if strings.TrimSpace(mockFunc) == funcName {
+			shouldMock = true
+			break
+		}
+	}
+
+	if !shouldMock {
 		requestLogger.LogWithRequest(fmt.Sprintf("Not mocking function: %s", funcName), r, "")
 		handleProxy(w, r)
 		return
