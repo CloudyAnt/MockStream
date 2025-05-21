@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -55,6 +57,26 @@ func NewResponseRecorder(w http.ResponseWriter) *ResponseRecorder {
 		ResponseWriter: w,
 		body:           bytes.NewBuffer(nil),
 	}
+}
+
+func (w *ResponseRecorder) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func (w *ResponseRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if h, ok := w.ResponseWriter.(http.Hijacker); ok {
+		return h.Hijack()
+	}
+	return nil, nil, errors.New("ResponseWriter does not implement Hijacker")
+}
+
+func (w *ResponseRecorder) Push(target string, opts *http.PushOptions) error {
+	if p, ok := w.ResponseWriter.(http.Pusher); ok {
+		return p.Push(target, opts)
+	}
+	return errors.New("ResponseWriter does not implement Pusher")
 }
 
 func (r *ResponseRecorder) WriteHeader(statusCode int) {
