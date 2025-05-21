@@ -1,10 +1,7 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -20,6 +17,9 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
+
+	"mock-stream/recorder"
+	"mock-stream/ui"
 )
 
 type Config struct {
@@ -38,67 +38,12 @@ var (
 	appConfig   Config
 	server      *http.Server
 	defaultPort = 10010
-	portPicker  *PortPicker
+	portPicker  *ui.PortPicker
 
 	// --- logs ---
-	requestLogger *RequestLogger
+	requestLogger *recorder.RequestLogger
 	reqLogList    *widget.List
 )
-
-// ResponseRecorder is a custom implementation of http.ResponseWriter that records the response
-type ResponseRecorder struct {
-	http.ResponseWriter
-	statusCode int
-	body       *bytes.Buffer
-}
-
-func NewResponseRecorder(w http.ResponseWriter) *ResponseRecorder {
-	return &ResponseRecorder{
-		ResponseWriter: w,
-		body:           bytes.NewBuffer(nil),
-	}
-}
-
-func (w *ResponseRecorder) Flush() {
-	if f, ok := w.ResponseWriter.(http.Flusher); ok {
-		f.Flush()
-	}
-}
-
-func (w *ResponseRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
-	if h, ok := w.ResponseWriter.(http.Hijacker); ok {
-		return h.Hijack()
-	}
-	return nil, nil, errors.New("ResponseWriter does not implement Hijacker")
-}
-
-func (w *ResponseRecorder) Push(target string, opts *http.PushOptions) error {
-	if p, ok := w.ResponseWriter.(http.Pusher); ok {
-		return p.Push(target, opts)
-	}
-	return errors.New("ResponseWriter does not implement Pusher")
-}
-
-func (r *ResponseRecorder) WriteHeader(statusCode int) {
-	r.statusCode = statusCode
-	r.ResponseWriter.WriteHeader(statusCode)
-}
-
-func (r *ResponseRecorder) Write(b []byte) (int, error) {
-	r.body.Write(b)
-	return r.ResponseWriter.Write(b)
-}
-
-func (r *ResponseRecorder) Status() int {
-	if r.statusCode == 0 {
-		return http.StatusOK
-	}
-	return r.statusCode
-}
-
-func (r *ResponseRecorder) Body() *bytes.Buffer {
-	return r.body
-}
 
 func main() {
 	myApp := app.New()
@@ -107,7 +52,7 @@ func main() {
 	window.SetIcon(ResourceAppIconPng)
 
 	// Initialize logger
-	requestLogger = NewRequestLogger(100)
+	requestLogger = recorder.NewRequestLogger(100)
 
 	// GUI
 	backendEntry := widget.NewEntry()
@@ -262,7 +207,7 @@ func main() {
 		configMutex.Unlock()
 	}
 
-	portPicker = NewPortPicker("server port", defaultPort)
+	portPicker = ui.NewPortPicker("server port", defaultPort)
 	startButton.OnTapped = func() {
 		configMutex.Lock()
 		defer configMutex.Unlock()
@@ -435,7 +380,7 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create a response recorder to capture the response
-	recorder := NewResponseRecorder(w)
+	recorder := recorder.NewResponseRecorder(w)
 
 	// Proxy the request
 	logEntry := requestLogger.LogWithRequest(fmt.Sprintf("Proxying request: %s", r.URL.String()), r, "")

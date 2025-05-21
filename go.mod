@@ -1,4 +1,4 @@
-module github.com/CloudyAnt/mock-stream
+module mock-stream
 
 go 1.23.0
 
