@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -20,6 +21,7 @@ import (
 
 	"mock-stream/recorder"
 	"mock-stream/ui"
+	"mock-stream/util"
 )
 
 type Config struct {
@@ -74,7 +76,7 @@ func main() {
 		// Split text into lines
 		lines := strings.Split(text, "\n")
 		if row < len(lines) {
-			lines[row] = InsertStringConcat(lines[row], col, "⇥")
+			lines[row] = util.InsertStringConcat(lines[row], col, "⇥")
 			contentEntry.SetText(strings.Join(lines, "\n"))
 			// Move cursor after the inserted tab
 			contentEntry.CursorColumn = col + 1
@@ -97,7 +99,7 @@ func main() {
 		// Split text into lines
 		lines := strings.Split(text, "\n")
 		if row < len(lines) {
-			lines[row] = InsertStringConcat(lines[row], col, "⇥")
+			lines[row] = util.InsertStringConcat(lines[row], col, "⇥")
 			thinkingEntry.SetText(strings.Join(lines, "\n"))
 			// Move cursor after the inserted tab
 			thinkingEntry.CursorColumn = col + 1
@@ -326,7 +328,6 @@ func handleMockStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !shouldMock {
-		requestLogger.LogWithRequest(fmt.Sprintf("Not mocking function: %s", funcName), r, "")
 		handleProxy(w, r)
 		return
 	}
@@ -427,18 +428,18 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Accel-Buffering", "no") // Disable nginx buffering if behind nginx
 	}
 
-	// Create a response recorder to capture the response
-	recorder := recorder.NewResponseRecorder(w)
-
 	// Proxy the request
 	logEntry := requestLogger.LogWithRequest(fmt.Sprintf("Proxying request: %s", r.URL.String()), r, "")
+
+	// Create a response recorder to capture the response
+	recorder := recorder.NewResponseRecorder(w, logEntry)
 	proxy.ServeHTTP(recorder, r)
 
 	// Create a response object for logging
 	resp := &http.Response{
 		StatusCode: recorder.Status(),
 		Header:     recorder.Header(),
-		Body:       nil,
+		Body:       io.NopCloser(recorder.Body()),
 	}
 
 	// Log the response

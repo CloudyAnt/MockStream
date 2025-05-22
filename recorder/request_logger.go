@@ -1,6 +1,7 @@
 package recorder
 
 import (
+	"bytes"
 	"fmt"
 	"net/http"
 	"strings"
@@ -16,12 +17,12 @@ type RequestLogEntry struct {
 	Summary   string
 	Request   *http.Request
 	Response  *http.Response
-	Body      string
+	body      *bytes.Buffer
 }
 
 type RequestLogger struct {
 	mutex       sync.RWMutex
-	requestLogs []RequestLogEntry
+	requestLogs []*RequestLogEntry
 	maxLogs     int
 	logList     *widget.List
 }
@@ -42,7 +43,7 @@ func (l *RequestLogger) GetLogCount() int {
 	return len(l.requestLogs)
 }
 
-func (l *RequestLogger) GetLog(index int) RequestLogEntry {
+func (l *RequestLogger) GetLog(index int) *RequestLogEntry {
 	l.mutex.RLock()
 	defer l.mutex.RUnlock()
 	return l.requestLogs[index]
@@ -52,23 +53,23 @@ func (l *RequestLogger) LogWithRequest(log string, req *http.Request, body strin
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	entry := RequestLogEntry{
+	entry := &RequestLogEntry{
 		Timestamp: time.Now().Format("15:04:05"),
 		Summary:   log,
 		Request:   req,
-		Body:      body,
+		body:      bytes.NewBuffer([]byte(body)),
 	}
-	l.requestLogs = append([]RequestLogEntry{entry}, l.requestLogs...)
+	l.requestLogs = append([]*RequestLogEntry{entry}, l.requestLogs...)
 	if len(l.requestLogs) > l.maxLogs {
 		l.requestLogs = l.requestLogs[:l.maxLogs]
 	}
 	if l.logList != nil {
 		fyne.Do(l.logList.Refresh)
 	}
-	return &entry
+	return entry
 }
 
-func (l *RequestLogger) FormatLogDetails(log RequestLogEntry) string {
+func (l *RequestLogger) FormatLogDetails(log *RequestLogEntry) string {
 	var details strings.Builder
 	details.WriteString(fmt.Sprintf("Time: %s\n\n", log.Timestamp))
 
@@ -98,9 +99,9 @@ func (l *RequestLogger) FormatLogDetails(log RequestLogEntry) string {
 	}
 
 	// Body
-	if log.Body != "" {
+	if log.body != nil {
 		details.WriteString("\n=== Body ===\n")
-		details.WriteString(log.Body)
+		details.WriteString(log.body.String())
 	}
 
 	return details.String()

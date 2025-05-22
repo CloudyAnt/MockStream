@@ -12,13 +12,13 @@ import (
 type ResponseRecorder struct {
 	http.ResponseWriter
 	statusCode int
-	body       *bytes.Buffer
+	logger     *RequestLogEntry
 }
 
-func NewResponseRecorder(w http.ResponseWriter) *ResponseRecorder {
+func NewResponseRecorder(w http.ResponseWriter, logger *RequestLogEntry) *ResponseRecorder {
 	return &ResponseRecorder{
 		ResponseWriter: w,
-		body:           bytes.NewBuffer(nil),
+		logger:         logger,
 	}
 }
 
@@ -48,7 +48,7 @@ func (r *ResponseRecorder) WriteHeader(statusCode int) {
 }
 
 func (r *ResponseRecorder) Write(b []byte) (int, error) {
-	r.body.Write(b)
+	r.logger.body.Write(b)
 	return r.ResponseWriter.Write(b)
 }
 
@@ -60,5 +60,5 @@ func (r *ResponseRecorder) Status() int {
 }
 
 func (r *ResponseRecorder) Body() *bytes.Buffer {
-	return r.body
+	return r.logger.body
 }
