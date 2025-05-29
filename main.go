@@ -21,7 +21,6 @@ import (
 
 	"mock-stream/recorder"
 	"mock-stream/ui"
-	"mock-stream/util"
 )
 
 type Config struct {
@@ -68,19 +67,7 @@ func main() {
 	contentScroll.SetMinSize(fyne.NewSize(380, 200))
 
 	tabButton := widget.NewButton("Insert Tab", func() {
-		text := contentEntry.Text
-		row := contentEntry.CursorRow
-		col := contentEntry.CursorColumn
-
-		// Split text into lines
-		lines := strings.Split(text, "\n")
-		if row < len(lines) {
-			lines[row] = util.InsertStringConcat(lines[row], col, "⇥")
-			contentEntry.SetText(strings.Join(lines, "\n"))
-			// Move cursor after the inserted tab
-			contentEntry.CursorColumn = col + 1
-			contentEntry.Refresh()
-		}
+		contentEntry.TypedRune('⇥')
 	})
 	contentContainer := container.NewVBox(contentScroll)
 
@@ -91,19 +78,7 @@ func main() {
 	thinkingScroll.SetMinSize(fyne.NewSize(380, 200))
 
 	thinkingTabButton := widget.NewButton("Insert Tab", func() {
-		text := thinkingEntry.Text
-		row := thinkingEntry.CursorRow
-		col := thinkingEntry.CursorColumn
-
-		// Split text into lines
-		lines := strings.Split(text, "\n")
-		if row < len(lines) {
-			lines[row] = util.InsertStringConcat(lines[row], col, "⇥")
-			thinkingEntry.SetText(strings.Join(lines, "\n"))
-			// Move cursor after the inserted tab
-			thinkingEntry.CursorColumn = col + 1
-			thinkingEntry.Refresh()
-		}
+		thinkingEntry.TypedRune('⇥')
 	})
 	thinkingContainer := container.NewVBox(thinkingScroll)
 
