@@ -9,26 +9,38 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
-type PortPicker struct {
-	entry       *widget.Entry
-	btnUp       *widget.Button
-	btnDown     *widget.Button
-	current     int
-	defaultPort int
+type NumberPicker struct {
+	entry      *widget.Entry
+	btnUp      *widget.Button
+	btnDown    *widget.Button
+	current    int
+	defaultVal int
+	minVal     int
+	maxVal     int
 }
 
 var gui fyne.CanvasObject
 
-func NewPortPicker(name string, initialPort int) *PortPicker {
-	p := &PortPicker{current: initialPort, defaultPort: initialPort}
+// NewPortPicker creates a NumberPicker specifically for port selection (1-65535)
+func NewPortPicker(name string, initialPort int) *NumberPicker {
+	return NewNumberPicker(name, initialPort, 1, 65535)
+}
+
+func NewNumberPicker(name string, initialVal, minVal, maxVal int) *NumberPicker {
+	p := &NumberPicker{
+		current:    initialVal,
+		defaultVal: initialVal,
+		minVal:     minVal,
+		maxVal:     maxVal,
+	}
 
 	p.entry = widget.NewEntry()
-	p.entry.SetText(strconv.Itoa(initialPort))
-	p.entry.SetPlaceHolder(name + ". default: " + strconv.Itoa(initialPort))
+	p.entry.SetText(strconv.Itoa(initialVal))
+	p.entry.SetPlaceHolder(fmt.Sprintf("%s. default: %d (range: %d-%d)", name, initialVal, minVal, maxVal))
 	p.entry.Validator = func(s string) error {
 		val, err := strconv.Atoi(s)
-		if err != nil || val < 1 || val > 65535 {
-			return fmt.Errorf("invalid port")
+		if err != nil || val < p.minVal || val > p.maxVal {
+			return fmt.Errorf("invalid number, must be between %d and %d", p.minVal, p.maxVal)
 		}
 		return nil
 	}
@@ -39,7 +51,7 @@ func NewPortPicker(name string, initialPort int) *PortPicker {
 
 	// Create smaller buttons with custom size
 	p.btnUp = widget.NewButton("▲", func() {
-		if p.current < 65535 {
+		if p.current < p.maxVal {
 			p.current++
 			updateEntry()
 		}
@@ -47,7 +59,7 @@ func NewPortPicker(name string, initialPort int) *PortPicker {
 	p.btnUp.Importance = widget.LowImportance
 
 	p.btnDown = widget.NewButton("▼", func() {
-		if p.current > 1 {
+		if p.current > p.minVal {
 			p.current--
 			updateEntry()
 		}
@@ -63,14 +75,14 @@ func NewPortPicker(name string, initialPort int) *PortPicker {
 	return p
 }
 
-func (p *PortPicker) GetPort() int {
+func (p *NumberPicker) GetValue() int {
 	if p.current == 0 {
-		return p.defaultPort
+		return p.defaultVal
 	}
 	return p.current
 }
 
-func (p *PortPicker) GetUI() fyne.CanvasObject {
+func (p *NumberPicker) GetUI() fyne.CanvasObject {
 	if gui == nil {
 		// Create a horizontal layout for the buttons
 		buttons := container.NewHBox(
@@ -90,13 +102,13 @@ func (p *PortPicker) GetUI() fyne.CanvasObject {
 	return gui
 }
 
-func (p *PortPicker) Disable() {
+func (p *NumberPicker) Disable() {
 	p.entry.Disable()
 	p.btnUp.Disable()
 	p.btnDown.Disable()
 }
 
-func (p *PortPicker) Enable() {
+func (p *NumberPicker) Enable() {
 	p.entry.Enable()
 	p.btnUp.Enable()
 	p.btnDown.Enable()

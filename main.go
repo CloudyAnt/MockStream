@@ -40,7 +40,7 @@ var (
 	appConfig   Config
 	server      *http.Server
 	defaultPort = 10010
-	portPicker  *ui.PortPicker
+	portPicker  *ui.NumberPicker
 
 	// --- logs ---
 	requestLogger *recorder.RequestLogger
@@ -60,7 +60,6 @@ func main() {
 	backendEntry := widget.NewEntry()
 	backendEntry.SetPlaceHolder("Input proxy url(.e.g. http://localhost:3001)")
 	backendEntry.SetText("http://localhost:3001")
-	backendEntry.Wrapping = fyne.TextWrapWord
 
 	contentEntry := widget.NewMultiLineEntry()
 	contentEntry.SetPlaceHolder("Input content (Click ⇥ button to insert tab)")
@@ -265,7 +264,7 @@ func main() {
 				MockEnabled:   mockSwitch.Checked,
 				RawMode:       rawModeSwitch.Checked,
 				MockFunctions: mockFunctions.Text,
-				Port:          portPicker.GetPort(),
+				Port:          portPicker.GetValue(),
 				Running:       true,
 			}
 			startServer()
@@ -380,7 +379,7 @@ func handleMockStream0(w http.ResponseWriter, content, key string, rawMode bool)
 
 		w.(http.Flusher).Flush()
 		count++
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(20 * time.Millisecond)
 	}
 }
 
