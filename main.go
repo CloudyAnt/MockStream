@@ -400,6 +400,8 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Connection", "keep-alive")
 		w.Header().Set("Transfer-Encoding", "chunked")
 		w.Header().Set("X-Accel-Buffering", "no") // Disable nginx buffering if behind nginx
+		// Remove Content-Length header if it exists
+		w.Header().Del("Content-Length")
 	}
 
 	// Proxy the request
