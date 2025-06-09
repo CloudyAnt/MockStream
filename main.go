@@ -24,14 +24,16 @@ import (
 )
 
 type Config struct {
-	BackendURL    string
-	MockContent   string
-	MockThinking  string
-	MockFunctions string
-	Running       bool
-	MockEnabled   bool
-	RawMode       bool // return raw line instead of "data: {...}"
-	Port          int
+	BackendURL       string
+	MockContent      string
+	MockContentRate  int
+	MockThinking     string
+	MockThinkingRate int
+	MockFunctions    string
+	Running          bool
+	MockEnabled      bool
+	RawMode          bool // return raw line instead of "data: {...}"
+	Port             int
 }
 
 var (
@@ -70,6 +72,7 @@ func main() {
 		contentEntry.TypedRune('⇥')
 	})
 	contentContainer := container.NewVBox(contentScroll)
+	contentRatePicker := ui.NewNumberPicker("Rate(ms)", 100, 1, 1000, false)
 
 	thinkingEntry := widget.NewMultiLineEntry()
 	thinkingEntry.SetPlaceHolder("Input reasoning content (Click ⇥ button to insert tab)")
@@ -81,6 +84,7 @@ func main() {
 		thinkingEntry.TypedRune('⇥')
 	})
 	thinkingContainer := container.NewVBox(thinkingScroll)
+	thinkingRatePicker := ui.NewNumberPicker("Rate(ms)", 100, 1, 1000, false)
 
 	statusLabel := widget.NewLabel("Server Status: Not Running")
 	statusLabel.TextStyle = fyne.TextStyle{Bold: true}
@@ -106,29 +110,30 @@ func main() {
 	mockFunctions.SetText("chat")
 
 	// Create section headers with custom styling
-	createHeader := func(text string, tabButton *widget.Button) *fyne.Container {
+	createHeader := func(text string, canvasObjects ...fyne.CanvasObject) *fyne.Container {
 		header := widget.NewLabel(text)
 		header.TextStyle = fyne.TextStyle{Bold: true}
 		header.Alignment = fyne.TextAlignLeading
-		if tabButton != nil {
-			return container.NewHBox(header, tabButton)
-		}
-		return container.NewHBox(header)
+
+		// Create a horizontal box with all components
+		components := []fyne.CanvasObject{header}
+		components = append(components, canvasObjects...)
+		return container.NewHBox(components...)
 	}
 
 	// LAYOUT
 	form := container.NewVBox(
-		createHeader("Proxy Configuration", nil),
+		createHeader("Proxy Configuration"),
 		container.NewPadded(backendEntry),
 		container.NewHBox(
 			container.NewPadded(mockSwitch),
 			container.NewPadded(rawModeSwitch),
 		),
-		createHeader("Mock Functions", nil),
+		createHeader("Mock Functions"),
 		container.NewPadded(mockFunctions),
-		createHeader("Mock Thinking", thinkingTabButton),
+		createHeader("Mock Thinking", thinkingTabButton, thinkingRatePicker.GetUI()),
 		container.NewPadded(thinkingContainer),
-		createHeader("Mock Content", tabButton),
+		createHeader("Mock Content", tabButton, contentRatePicker.GetUI()),
 		container.NewPadded(contentContainer),
 	)
 
@@ -220,7 +225,7 @@ func main() {
 		configMutex.Unlock()
 	}
 
-	portPicker = ui.NewPortPicker("server port", defaultPort)
+	portPicker = ui.NewPortPicker("Server Port", defaultPort)
 	startButton.OnTapped = func() {
 		configMutex.Lock()
 		defer configMutex.Unlock()
@@ -233,14 +238,16 @@ func main() {
 			portPicker.Enable()
 		} else {
 			appConfig = Config{
-				BackendURL:    backendEntry.Text,
-				MockContent:   contentEntry.Text,
-				MockThinking:  thinkingEntry.Text,
-				MockEnabled:   mockSwitch.Checked,
-				RawMode:       rawModeSwitch.Checked,
-				MockFunctions: mockFunctions.Text,
-				Port:          portPicker.GetValue(),
-				Running:       true,
+				BackendURL:       backendEntry.Text,
+				MockContent:      contentEntry.Text,
+				MockContentRate:  contentRatePicker.GetValue(),
+				MockThinking:     thinkingEntry.Text,
+				MockThinkingRate: thinkingRatePicker.GetValue(),
+				MockEnabled:      mockSwitch.Checked,
+				RawMode:          rawModeSwitch.Checked,
+				MockFunctions:    mockFunctions.Text,
+				Port:             portPicker.GetValue(),
+				Running:          true,
 			}
 			startServer()
 			statusLabel.SetText(fmt.Sprintf("Server Status: Started (Port:%d)", appConfig.Port))
@@ -315,13 +322,13 @@ func handleMockStream(w http.ResponseWriter, r *http.Request) {
 	summary := fmt.Sprintf("Mocking function: %s", funcName)
 	requestLogger.LogWithRequest(summary, r, fmt.Sprintf("Thinking: %s\nContent: %s\nRawMode: %t", thinking, content, rawMode))
 
-	handleMockStream0(w, thinking, "reasoning_content", rawMode)
-	handleMockStream0(w, content, "content", rawMode)
+	handleMockStream0(w, thinking, "reasoning_content", rawMode, appConfig.MockThinkingRate)
+	handleMockStream0(w, content, "content", rawMode, appConfig.MockContentRate)
 	fmt.Fprintf(w, "data: %s\n", "[DONE]")
 	w.(http.Flusher).Flush()
 }
 
-func handleMockStream0(w http.ResponseWriter, content, key string, rawMode bool) {
+func handleMockStream0(w http.ResponseWriter, content, key string, rawMode bool, rate int) {
 	content = strings.ReplaceAll(content, "⇥", "\t")
 	chunks := strings.SplitAfter(content, "\n")
 
@@ -329,7 +336,6 @@ func handleMockStream0(w http.ResponseWriter, content, key string, rawMode bool)
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
-	count := 0
 	for _, chunk := range chunks {
 		if chunk == "" {
 			continue
@@ -353,8 +359,7 @@ func handleMockStream0(w http.ResponseWriter, content, key string, rawMode bool)
 		}
 
 		w.(http.Flusher).Flush()
-		count++
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(time.Duration(rate) * time.Millisecond)
 	}
 }
 

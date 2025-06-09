@@ -17,21 +17,22 @@ type NumberPicker struct {
 	defaultVal int
 	minVal     int
 	maxVal     int
+	name       string
+	gui        fyne.CanvasObject
 }
-
-var gui fyne.CanvasObject
 
 // NewPortPicker creates a NumberPicker specifically for port selection (1-65535)
 func NewPortPicker(name string, initialPort int) *NumberPicker {
-	return NewNumberPicker(name, initialPort, 1, 65535)
+	return NewNumberPicker(name, initialPort, 1, 65535, true)
 }
 
-func NewNumberPicker(name string, initialVal, minVal, maxVal int) *NumberPicker {
+func NewNumberPicker(name string, initialVal, minVal, maxVal int, withUpDown bool) *NumberPicker {
 	p := &NumberPicker{
 		current:    initialVal,
 		defaultVal: initialVal,
 		minVal:     minVal,
 		maxVal:     maxVal,
+		name:       name,
 	}
 
 	p.entry = widget.NewEntry()
@@ -49,22 +50,26 @@ func NewNumberPicker(name string, initialVal, minVal, maxVal int) *NumberPicker 
 		p.entry.SetText(strconv.Itoa(p.current))
 	}
 
-	// Create smaller buttons with custom size
-	p.btnUp = widget.NewButton("▲", func() {
-		if p.current < p.maxVal {
-			p.current++
-			updateEntry()
-		}
-	})
-	p.btnUp.Importance = widget.LowImportance
+	p.btnUp = nil
+	p.btnDown = nil
+	if withUpDown {
+		// Create smaller buttons with custom size
+		p.btnUp = widget.NewButton("▲", func() {
+			if p.current < p.maxVal {
+				p.current++
+				updateEntry()
+			}
+		})
+		p.btnUp.Importance = widget.LowImportance
 
-	p.btnDown = widget.NewButton("▼", func() {
-		if p.current > p.minVal {
-			p.current--
-			updateEntry()
-		}
-	})
-	p.btnDown.Importance = widget.LowImportance
+		p.btnDown = widget.NewButton("▼", func() {
+			if p.current > p.minVal {
+				p.current--
+				updateEntry()
+			}
+		})
+		p.btnDown.Importance = widget.LowImportance
+	}
 
 	p.entry.OnChanged = func(s string) {
 		if val, err := strconv.Atoi(s); err == nil {
@@ -83,23 +88,34 @@ func (p *NumberPicker) GetValue() int {
 }
 
 func (p *NumberPicker) GetUI() fyne.CanvasObject {
-	if gui == nil {
+	if p.gui == nil {
 		// Create a horizontal layout for the buttons
-		buttons := container.NewHBox(
-			p.btnUp,
-			p.btnDown,
-		)
+		buttons := container.NewHBox()
+		if p.btnUp != nil {
+			buttons.Add(p.btnUp)
+		}
+		if p.btnDown != nil {
+			buttons.Add(p.btnDown)
+		}
 
-		// Create a container that combines the entry and buttons
-		gui = container.NewBorder(
-			nil, nil, nil, buttons,
+		// Create a label for the title
+		title := widget.NewLabel(p.name + ":")
+		title.TextStyle = fyne.TextStyle{Bold: true}
+
+		// Create a container that combines the title, entry and buttons
+		p.gui = container.NewBorder(
+			nil, nil, title, buttons,
 			p.entry,
 		)
 
-		// Set minimum size for the entry to make it more compact
-		p.entry.Resize(fyne.NewSize(100, p.entry.MinSize().Height))
+		// Calculate minimum width based on the maximum value's digit count
+		// Each digit needs about 8-10 pixels, plus some padding
+		digitCount := len(strconv.Itoa(p.maxVal))
+		minWidth := float32(digitCount*10 + 20) // 10 pixels per digit + 20 pixels padding for the buttons
+		fmt.Println("minWidth", minWidth)
+		p.gui.Resize(fyne.NewSize(minWidth*2, p.gui.MinSize().Height))
 	}
-	return gui
+	return p.gui
 }
 
 func (p *NumberPicker) Disable() {
