@@ -106,8 +106,8 @@ func main() {
 	rawModeSwitch.SetChecked(false)
 
 	mockFunctions := widget.NewEntry()
-	mockFunctions.SetPlaceHolder("Input mock functions(.e.g. chat,codebase)")
-	mockFunctions.SetText("chat")
+	mockFunctions.SetPlaceHolder("Input mock functions(.e.g. chat,codebase), use * to mock all functions")
+	mockFunctions.SetText("*")
 
 	// Create section headers with custom styling
 	createHeader := func(text string, canvasObjects ...fyne.CanvasObject) *fyne.Container {
@@ -302,6 +302,10 @@ func handleMockStream(w http.ResponseWriter, r *http.Request) {
 	// Check if the function name is in the list of mocking functions
 	shouldMock := false
 	for _, mockFunc := range mockingFunctions {
+		if mockFunc == "*" {
+			shouldMock = true
+			break
+		}
 		if strings.TrimSpace(mockFunc) == funcName {
 			shouldMock = true
 			break
